@@ -30,7 +30,7 @@ class File(models.Model):
     date_created = models.DateTimeField(auto_now_add=True)
     permissions = models.CharField(max_length=255, default='read')
     folder = models.ForeignKey(Folder, related_name='files', on_delete=models.CASCADE, null=True, blank=True)
-    tags = models.ManyToManyField(Tag, related_name='files')
+    tags = models.ManyToManyField(Tag, related_name='tags')
 
     def __str__(self):
         return self.name

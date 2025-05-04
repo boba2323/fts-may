@@ -23,6 +23,8 @@ from debug_toolbar.toolbar import debug_toolbar_urls
 
 router = routers.DefaultRouter()
 router.register(r'users', views.UsersViewSet, basename='myuser')
+router.register(r'files', views.FileViewSet, basename='files')
+router.register(r'tags', views.TagsViewSet, basename='tags')
 
 urlpatterns = [
     path('admin/', admin.site.urls),

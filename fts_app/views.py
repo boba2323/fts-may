@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from fts_app.serializers import FileSerializer, FolderSerializer, UserSerializer, GroupSerializer, ActionLogSerializer, TagSerializer
+from .models import File, Folder, Modification, Tag, ActionLog
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -40,3 +41,13 @@ class UsersViewSet(viewsets.ModelViewSet):
     # permission_classes = [IsAuthenticated]
     # authentication_classes = [JWTAuthentication]
   
+
+class FileViewSet(viewsets.ModelViewSet):
+    queryset = File.objects.all()
+    serializer_class = FileSerializer
+    permission_classes = [AllowAny]
+
+class TagsViewSet(viewsets.ModelViewSet):
+    queryset = Tag.objects.all()
+    serializer_class = TagSerializer
+    permission_classes = [AllowAny]
