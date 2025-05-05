@@ -14,6 +14,9 @@ class UserSerializer(serializers.HyperlinkedModelSerializer):
         fields = ['url', 'id', 'username', 'email', 'password']  # Include 'url' field
         # extra_kwargs = {'password': {'write_only': True}}
 
+# a user object is created when we call the save method on it.
+# https://www.django-rest-framework.org/tutorial/1-serialization/
+#  The create() and update() methods define how fully fledged instances are created or modified when calling serializer.save()
     def create(self, validated_data):
         user = User.objects.create_user(
             username=validated_data['username'],

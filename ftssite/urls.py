@@ -20,6 +20,8 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework import routers
 from fts_app import views
 from debug_toolbar.toolbar import debug_toolbar_urls
+from rest_framework.urlpatterns import format_suffix_patterns
+
 
 router = routers.DefaultRouter()
 router.register(r'users', views.UsersViewSet, basename='myuser')
@@ -39,6 +41,8 @@ urlpatterns = [
     path('api-auth/', include('rest_framework.urls', namespace='rest_framework'))
 ] + debug_toolbar_urls()
 
+
+# urlpatterns = format_suffix_patterns(urlpatterns)
 # curl \
 #   -X POST \
 #   -H "Content-Type: application/json" \

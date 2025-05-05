@@ -31,6 +31,7 @@ class UserList(APIView):
 
     def get(self, request):
         users = User.objects.all()
+        # We can also serialize querysets instead of model instances. To do so we simply add a many=True flag to the serializer arguments.
         serializer = UserSerializer(users, many=True)
         return Response(serializer.data)
     
