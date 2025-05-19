@@ -21,12 +21,18 @@ from rest_framework import routers
 from fts_app import views
 from debug_toolbar.toolbar import debug_toolbar_urls
 from rest_framework.urlpatterns import format_suffix_patterns
+from django.conf import settings
+from django.conf.urls.static import static
 
 
 router = routers.DefaultRouter()
 router.register(r'users', views.UsersViewSet, basename='myuser')
-router.register(r'files', views.FileViewSet, basename='files')
-router.register(r'tags', views.TagsViewSet, basename='tags')
+router.register(r'files', views.FileViewSet, basename='file')
+router.register(r'tags', views.TagsViewSet, basename='tag')
+router.register(r'folders', views.FolderViewSet, basename='folder')
+
+router.register(r'modifications', views.ModificationViewSet, basename='modification')
+router.register(r'actionlog', views.ActionLogViewSet, basename='actionlog')
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -38,9 +44,11 @@ urlpatterns = [
     
     # drf views
     path('drf/', include(router.urls)),
-    path('api-auth/', include('rest_framework.urls', namespace='rest_framework'))
+    path('api-auth/', include('rest_framework.urls'))
 ] + debug_toolbar_urls()
 
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
 # urlpatterns = format_suffix_patterns(urlpatterns)
 # curl \

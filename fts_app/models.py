@@ -1,6 +1,5 @@
 import uuid
 from django.db import models
-from django.db import models
 from django.conf import settings
 from django.utils import timezone
 
@@ -47,8 +46,8 @@ class Modification(models.Model):
     modified_by = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='modified_files', on_delete=models.SET_NULL, null=True, blank=True)
     modified_by_username_at_modification = models.CharField(max_length=150, blank=True, null=True)  # Store username at the time
     date_modified = models.DateTimeField(auto_now_add=True)
-    permissions_at_modification = models.CharField(max_length=255, blank=True, null=True)
-    method = models.CharField(max_length=255, blank=True, null=True)
+    permissions_at_modification = models.CharField(max_length=255, blank=True, null=True, default='read')
+    method = models.CharField(max_length=255, blank=True, null=True, default='downloaded')
 
     def __str__(self):
         file_name = self.file.name if self.file else self.file_name_at_modification or "Deleted File"
@@ -56,6 +55,7 @@ class Modification(models.Model):
         return f"Modification ID: {self.id} of {file_name} by {username} on {self.date_modified}"
 
     def save(self, *args, **kwargs):
+        print('save inside the modification model')
         if self.file:
             self.file_name_at_modification = self.file.name
         if self.modified_by:

@@ -1,0 +1,2 @@
+This is a sample text file #4.
+Line two of the file.

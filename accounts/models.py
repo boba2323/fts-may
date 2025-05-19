@@ -58,7 +58,7 @@ class Myuser(AbstractBaseUser, PermissionsMixin):
     # username field is required to create a superuser by default
     USERNAME_FIELD = "email"
 
-    # needed to create superuser
+    # needed to create superuser meaning it will be required as well when creating superuser
     REQUIRED_FIELDS = ["username"]
 
     def __str__(self):
