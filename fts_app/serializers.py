@@ -3,7 +3,7 @@ from django.contrib.auth.models import Group
 from django.contrib.auth import get_user_model
 from .models import File, Folder, Modification, Tag, ActionLog  # Import your models
 from rest_framework.reverse import reverse
-
+from pprint import pprint
 User = get_user_model()
 
 
@@ -61,7 +61,7 @@ class FolderSerializer(serializers.HyperlinkedModelSerializer):
                   'total_subfolders',
                   'files',
                   'all_subfolders',
-                  'all_files'
+                  'all_files', "access_code"
                   ]  # Include 'url'
 
         # we get the serialiser method by prefixing get_ to the field name
@@ -85,6 +85,7 @@ class FolderSerializer(serializers.HyperlinkedModelSerializer):
 
 
     def build_subfolder_tree(self, folder):
+        # getting the request body in the serialiser. its not the same as getting the request body in biews
         request = self.context.get('request')
         # list comprehensiion
         return [
@@ -137,7 +138,7 @@ class FileSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = File
         fields = ['url', 'id', 'file_data', 'name', 'owner', 'owner_username_at_creation', 'date_created','permissions', 
-                   'folder', 'tags', 'download_url']  
+                   'folder', 'tags', 'download_url', "access_code"] 
 
     def get_download_url(self, obj, *args, **kwargs):
         '''this method will link the download to the serializer field download_url. we will use the reverse function to get the url.'''
@@ -176,3 +177,81 @@ class GroupSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = Group
         fields = ['url', 'name']
+
+# custom jwt serliasier
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.views import TokenObtainPairView
+# the settings module exists inside drf in venv
+from rest_framework_simplejwt.settings import api_settings
+from django.contrib.auth.models import AbstractBaseUser, update_last_login
+#  File "/home/boba2323/fts-django/.venv/lib/python3.12/site-packages/rest_framework_simplejwt/serializers.py", line 75, in validate
+#     refresh = self.get_token(self.user)
+
+from typing import Any, Optional, TypeVar
+
+
+class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
+    '''this custom class saves the token access to the request session. thus creating a stateful token? the 
+        TokenObtainPairSerializer is a base class that we use to build to custom tokenserialiser class
+        it has default methods VALIDATE whose source code we found in a traceback that led us to the original source
+        in venv. we manipulate the method to extract the request object, get our token and store it in the 
+        request object. see that we store the acess not the refresh token. most of the code in the method
+        is default code we only add the part that gets the token and stores it in the request session.
+        i suppose we use session since it is design to expire after sometime? we can GET BACK TO IT later
+    '''
+    
+# "/home/boba2323/fts-django/.venv/lib/python3.12/site-packages/rest_framework_simplejwt/serializers.py",
+# we obtain this code from the module above
+    def validate(self, attrs: dict[str, Any]) -> dict[str, str]:
+        data = super().validate(attrs)
+        request=self.context['request']
+        print('*\n\n-------------------the request body----------------------------*\n')
+        pprint(request.__dict__)
+        print('\n\n============session================\n')
+        pprint(request.session)
+
+        refresh = self.get_token(self.user)
+
+        data["refresh"] = str(refresh)
+        data["access"] = str(refresh.access_token)
+
+        # lets take a look at the token
+        print('\n\n================TOKEN INSIDE VALIDATE METHOD==============\n')
+        print(data['access'])
+        # lets try adding the token to session and store it there
+        request.session['token']=data['access']
+        print('\n\n===========PRINTING THE REQUEST SESSION TOKEN=============\n')
+        print(request.session['token'])
+        # it works now lets see whether we can retrieve it in other views
+
+        if api_settings.UPDATE_LAST_LOGIN:
+            update_last_login(None, self.user)
+
+        return data
+    
+
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        # request=context['request']
+        # Add custom claims
+        # access_token = response.data.get('access')
+        
+        # # You can store it here if needed
+        # print(f"Access token: {access_token}")
+        token['name'] = "test_name"
+        # ...
+        # to check whats going on with the token we can checck these statements
+        # __dict__dunder mehtod exposes the attributes and dir() shows us the methods mostly
+        # token.access_token gets us the bearer token
+        print('*\n\n==================TOKEN==============*\n')
+        print(token)
+        # pprint(dir(token) )
+        # print(token.__dict__)
+        # print(token.access_token)
+        # print(token.get_token_backend)
+        # request = cls.context.get('request')
+        # data = request.data
+        # session=request.session
+        # print(session)
+        return token

@@ -3,12 +3,26 @@ from django.db import models
 from django.conf import settings
 from django.utils import timezone
 
+# from permissions.models import AccessCode
+# this will create a cicular import issue
+# https://forum.djangoproject.com/t/circular-import-nightmare-how-to-resolve/16722/2
+# My solution was to put some quotations around the model name, e.g.
+# changing: authors = models.ManyToManyField(User, null=True,blank=True)
+# To: authors = models.ManyToManyField(‘User,’ null=True,blank=True)
+# the solution
+
+
+
 class Tag(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=100, unique=True)
 
     def __str__(self):
         return self.name
+    
+    # need it so we can use it in rbacperms for dj-guardian
+    def get_model_name(self):
+        return self.__class__.__name__.lower()
     
 class Folder(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -18,8 +32,18 @@ class Folder(models.Model):
     parent_folder = models.ForeignKey('self', related_name='subfolders', on_delete=models.CASCADE, null=True, blank=True)
     permissions = models.CharField(max_length=255, default='read')
 
+    # accesscodes
+    # for 1 access code, there can be many folders
+    # accesscode is within quotation to prevent cicular impport
+    access_code = models.ForeignKey('permissions.AccessCode', on_delete=models.SET_NULL, null=True, blank=True, related_name='folders')
+    
+    
     def __str__(self):
         return self.name
+    
+    # need it so we can use it in rbacperms for dj-guardian
+    def get_model_name(self):
+        return self.__class__.__name__.lower()
 
 class File(models.Model):
     file_data = models.FileField(upload_to='user_files/')
@@ -31,8 +55,16 @@ class File(models.Model):
     folder = models.ForeignKey(Folder, related_name='files', on_delete=models.CASCADE, null=True, blank=True)
     tags = models.ManyToManyField(Tag, related_name='tags')
 
+    # accesscodes
+    # for 1 access code, there can be many files
+    access_code = models.ForeignKey('permissions.AccessCode', on_delete=models.SET_NULL, null=True, blank=True, related_name='files')
+
     def __str__(self):
         return self.name
+    
+    # need it so we can use it in rbacperms for dj-guardian
+    def get_model_name(self):
+        return self.__class__.__name__.lower()
     
     def save(self, *args, **kwargs):
         if self.owner and not self.owner_username_at_creation:
@@ -53,6 +85,12 @@ class Modification(models.Model):
         file_name = self.file.name if self.file else self.file_name_at_modification or "Deleted File"
         username = self.modified_by.username if self.modified_by else self.modified_by_username_at_modification or "Deleted User"
         return f"Modification ID: {self.id} of {file_name} by {username} on {self.date_modified}"
+
+
+    # need it so we can use it in rbacperms for dj-guardian
+    def get_model_name(self):
+        return self.__class__.__name__.lower()
+    
 
     def save(self, *args, **kwargs):
         print('save inside the modification model')
@@ -75,6 +113,13 @@ class ActionLog(models.Model):
     folder = models.ForeignKey('Folder', on_delete=models.SET_NULL, null=True, blank=True, related_name='action_logs')
     folder_name_at_action = models.CharField(max_length=255, blank=True, null=True)
     details = models.JSONField(null=True, blank=True)  # To store additional action-specific information
+
+
+
+    # need it so we can use it in rbacperms for dj-guardian
+    def get_model_name(self):
+        return self.__class__.__name__.lower()
+    
 
     def save(self, *args, **kwargs):
         if self.user:

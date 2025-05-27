@@ -2,7 +2,7 @@ from django.shortcuts import render
 from django.http import HttpResponse
 from django.views import generic
 from django.conf import settings
-
+from pprint import pprint
 # your models
 from .models import File, Folder, Modification, Tag, ActionLog
 
@@ -19,7 +19,13 @@ from django.contrib.auth.models import Group
 from rest_framework.decorators import action
 # for downloads
 from django.http import FileResponse
+# custom throttling
+from django.utils import timezone
+from datetime import timedelta
+# ----
 
+# import custom permissions
+from .permissions import IsAuthorOrReadOnly
 
 User = get_user_model()
 class IndexView(generic.TemplateView):
@@ -34,28 +40,58 @@ class Home(APIView):
         content = {'message': 'Hello, World!'}
         return Response(content)
 
-class UserList(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+# class UserList(APIView):
+#     authentication_classes = [JWTAuthentication]
+#     permission_classes = [IsAuthorOrReadOnly]
 
-    def get(self, request):
-        users = User.objects.all()
-        # We can also serialize querysets instead of model instances. To do so we simply add a many=True flag to the serializer arguments.
-        serializer = UserSerializer(users, many=True)
-        return Response(serializer.data)
+#     def get(self, request):
+#         users = User.objects.all()
+#         # We can also serialize querysets instead of model instances. To do so we simply add a many=True flag to the serializer arguments.
+#         serializer = UserSerializer(users, many=True)
+#         return Response(serializer.data)
     
 class UsersViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
+    # permission_classes = [AllowAny]
     permission_classes = [AllowAny]
-    # permission_classes = [IsAuthenticated]
-    # authentication_classes = [JWTAuthentication]
+    authentication_classes = [JWTAuthentication]
+
   
 
 class FileViewSet(viewsets.ModelViewSet):
     queryset = File.objects.all()
     serializer_class = FileSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthorOrReadOnly]
+    authentication_classes = [JWTAuthentication]
+
+    #  checking for request meta
+    def list(self, request, *args, **kwargs):
+        # print("=== HEADERS ===")
+        # for key, value in request.headers.items():
+        #     print(f"{key}: {value}")
+
+        # print("=== META ===")
+        # for key, value in request.META.items():
+        #     print(f"{key}: {value}")
+
+        # REMEMBER THE TOKEN WAS SAVED INTO THE SESSION INSIDE THE CUSTOM MyTokenObtainPairSerializer
+        print('\n\n=============TOKEN OBTAINED INSIDE A VIEW, THE FILEVIEW================\n')
+        print(request.session.get('token'))
+        headers = {
+            "Authorization": request.session['token']
+        }
+        print('\n\n=============HEADERS================\n')
+        pprint(request.headers)
+        # pprint(request.headers['Sec-Fetch-Dest'])
+        # https://shafialam.medium.com/django-rest-framework-user-authentication-under-the-hood-http-basic-authentication-671933f06336
+        # getting hold of the meta http authorisation 
+        # this doesnt work because the request is sent before the method is executed
+        # request.META['HTTP_AUTHORIZATION'] = f'Bearer {request.session['token']}'
+        # request_token=request.META.get('HTTP_AUTHORIZATION')
+        # print(request_token)
+
+        return super().list(request, *args, **kwargs)
 
     # registering every downloads
     # https://www.django-rest-framework.org/api-guide/viewsets/#marking-extra-actions-for-routing
@@ -68,6 +104,18 @@ class FileViewSet(viewsets.ModelViewSet):
         '''this will create a endpoint at file/pk/download/ where we can download the file. custom logic can be added here'''
         file = self.get_object()
 
+        # we need to compensate for double saves by throttling
+        # we check if a download for a instance exists inthe last x milisecond, if no then commence with saving
+        now = timezone.now()
+        time_window = timedelta(seconds=0.6) 
+
+        # we check if the particaular modif has been made for the file in the last x milisecond
+        recent_download_exists = Modification.objects.filter(
+            file=file,
+            modified_by=request.user if request.user.is_authenticated else User.objects.get(pk=1),
+            date_modified__gte=now - time_window
+        ).exists()
+
         # https://docs.djangoproject.com/en/5.1/ref/request-response/
         # https://zetcode.com/django/fileresponse/
         response = FileResponse(open(file.file_data.path,
@@ -77,28 +125,42 @@ class FileViewSet(viewsets.ModelViewSet):
                                       "rb"),
                                       as_attachment=True,)
         # Perform download logic here
-        modif = Modification(
-            file=file,
-            file_name_at_modification=file.file_data.name,
-            # get_or_create makes a tuple
-            modified_by=request.user if request.user.is_authenticated else User.objects.get(pk=1),
-            modified_by_username_at_modification=request.user.username if request.user.is_authenticated else User.objects.get(pk=1).username
+        if not recent_download_exists:
+            modif = Modification(
+                file=file,
+                file_name_at_modification=file.file_data.name,
+                # get_or_create makes a tuple
+                modified_by=request.user if request.user.is_authenticated else User.objects.get(pk=1),
+                modified_by_username_at_modification=request.user.username if request.user.is_authenticated else User.objects.get(pk=1).username
 
-        )
-        print('print inside the action in view during download')
-        # we have a problem here, i believe because of multiple download apps, the download endpoint is hit several times, causing several modif instances to be created
-        # to prevent this, we can try to limit the donwload to one instance happeneing only once in a set duration of miliseconds 
-        # to diagnose, we can try with deguggerpy and also use curl to hit those endpoints
-        # curl -X GET -o curl2.txt http://127.0.0.1:8000/drf/files/1/download/
-        # with curl there is no double save
-        modif.save()
+            )
+            print('print inside the action in view during download')
+            # we have a problem here, i believe because of multiple download apps, the download endpoint is hit several times, causing several modif instances to be created
+            # to prevent this, we can try to limit the donwload to one instance happeneing only once in a set duration of miliseconds 
+            # to diagnose, we can try with deguggerpy and also use curl to hit those endpoints
+            # curl -X GET -o curl2.txt http://127.0.0.1:8000/drf/files/1/download/
+            # with curl there is no double save
+            modif.save()
         # the problem is because we were using free download manager which caused duplicate requests
+
+        # logic for action log
+        action_log = ActionLog(
+            user=request.user if request.user.is_authenticated else User.objects.get(pk=1),
+            username_at_action=request.user.username if request.user.is_authenticated else User.objects.get(pk=1).username,
+            action_type='download',
+            file=file,
+            file_name_at_action=file.file_data.name,
+            folder=file.folder if file.folder else None,
+            folder_name_at_action=file.folder.name if file.folder else None,
+            details="generic action logged"
+        )
+        action_log.save()
         return response
 
 class TagsViewSet(viewsets.ModelViewSet):
     queryset = Tag.objects.all()
     serializer_class = TagSerializer
-    permission_classes = [AllowAny]
+    # permission_classes = [IsAuthorOrReadOnly]
 
 class GroupViewSet(viewsets.ModelViewSet):
     queryset = Group.objects.all()
@@ -108,11 +170,13 @@ class GroupViewSet(viewsets.ModelViewSet):
 class FolderViewSet(viewsets.ModelViewSet):
     queryset = Folder.objects.all()
     serializer_class = FolderSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthorOrReadOnly]
+    authentication_classes = [JWTAuthentication]
 
     # https://stackoverflow.com/questions/72197928/drf-viewset-extra-action-action-serializer-class
     def get_queryset(self):
-        # in django, action maybe equivalent to method
+        # in django (rest framework?), action maybe equivalent to method
+        # there can be more actions like ['retrieve', 'update', 'destroy']
         if self.action == 'list':
             return Folder.objects.filter(parent_folder=None)
         return Folder.objects.all()

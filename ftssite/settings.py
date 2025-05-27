@@ -41,6 +41,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'fts_app',
     'accounts',
+    'permissions',
+    # for django guardian
     'rest_framework',
     'rest_framework_simplejwt',
     'guardian',
@@ -49,23 +51,31 @@ INSTALLED_APPS = [
 
 AUTHENTICATION_BACKENDS = (
     'django.contrib.auth.backends.ModelBackend', # this is default
-    'guardian.backends.ObjectPermissionBackend',
+    'guardian.backends.ObjectPermissionBackend', # we got this for django guardian
 )
+
+ANONYMOUS_USER_NAME =None # this is for django guardian, disables creation by anonymous users
 
 AUTH_USER_MODEL = 'accounts.Myuser'
 
 # https://medium.com/django-unleashed/securing-django-rest-apis-with-jwt-authentication-using-simple-jwt-a-step-by-step-guide-28efa84666fe
 REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
-        # 'rest_framework.permissions.IsAuthenticated',
+        'rest_framework.permissions.IsAuthenticated',
         'rest_framework.permissions.AllowAny',
     ),
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+
+        # from the book REST api with django
+        # 'rest_framework.authentication.SessionAuthentication',
+        # 'rest_framework.authentication.BasicAuthentication',
     ),
 }
 
 SIMPLE_JWT = {
+    # custom token serialiser in serliase.py
+    "TOKEN_OBTAIN_SERIALIZER": "fts_app.serializers.MyTokenObtainPairSerializer",
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
     "ROTATE_REFRESH_TOKENS": False,
@@ -81,6 +91,9 @@ SIMPLE_JWT = {
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    # this was added
+    'fts_app.middleware.jwt_token_retrieve.CustomTokenMiddleware',
+    # -----x------
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
