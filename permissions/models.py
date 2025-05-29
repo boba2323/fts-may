@@ -3,7 +3,6 @@ from django.contrib.auth import get_user_model
 import uuid
 from django.contrib.auth.models import Permission
 
-from django.contrib.auth.models import Group
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Q
 # =====================x=======================
@@ -50,7 +49,9 @@ class Team(models.Model):
     # since user and team models are m2m we will make a through model called TeamMembership
     name = models.CharField(max_length=100, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    leader = models.ForeignKey(User, on_delete=models.CASCADE, related_name='led_teams', null=True, blank=True)
+    # a user can be leader of many teams, but for now we want 1 user to be leader of only 1 team
+    # also, 1 user can be part of only 1 team at a time, this is taken care of with constraints in TeamMembership model
+    leader = models.ForeignKey(User, on_delete=models.CASCADE, related_name='led_teams' )
     # though reverse relation is "teams" its actual team, singular, we have constrained this model
     workers = models.ManyToManyField(
         User,
@@ -94,11 +95,11 @@ class Team(models.Model):
         elif self.level == 'L2' or self.level == 'L3':
             # we also have to return only the files and folders that contains the access codes
         # first we find what access codes are available for the team
-            if self.team.access_codes.exists():
+            if self.access_codes.exists():
                 # self=teammembership instance
                 # team=team object
                 # access_codes = reverse relation from accesscode model
-                team_access_codes = self.team.access_codes.all()
+                team_access_codes = self.access_codes.all()
                 # https://www.w3schools.com/django/ref_lookups_in.php
                 #Get all records where access_codes is one of the values in a list
                 # the queryset is already a list
@@ -106,7 +107,7 @@ class Team(models.Model):
                 return accessible_folders
             return Folder.objects.none()
         
-    def change_level_of_team(self, new_level):
+    def change_level_of_team(self, new_level:str):
         '''this will change the level of the team and also update the permissions of the team members
         based on the new level.'''
         if new_level not in dict(self.LEVEL_CHOICES).keys():
@@ -132,8 +133,6 @@ class TeamMembership(models.Model):
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='memberships')
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
 
-
-
     class Meta:
         # usage of unique_together
         # https://stackoverflow.com/questions/2201598/how-to-define-two-fields-unique-as-couple
@@ -146,8 +145,12 @@ class TeamMembership(models.Model):
         # this is done so that a user can only be part of one team at a time
         # we didnt use a fk in user model because we would lose the functionality of a
         # trhough model also we want a future scope for m2m
+        # https://docs.djangoproject.com/en/5.2/ref/models/constraints/#django.db.models.UniqueConstraint
+        # meanign the user wont be repeated more than once in a row, that means
+        # he will be assigned a team and role only once
         constraints = [
-            models.UniqueConstraint(fields=['user'], name='one_team_per_user')
+            models.UniqueConstraint(fields=['user'], name='one_team_per_user',
+                                    violation_error_message="A user can only be part of one team at a time.")
         ]
 
     def __str__(self):
@@ -156,10 +159,10 @@ class TeamMembership(models.Model):
     def get_accesible_folders(self):
         # we also have to return only the files and folders that contains the access codes
         # first we find what access codes are available for the team
-        self.get_accessible_folders_based_on_levels() # Return an empty queryset if no access codes exist
+        return self.team.get_accessible_folders_based_on_levels() # Return an empty queryset if no access codes exist
     
     def get_accesible_files(self):
-        self.get_accessible_files_based_on_levels()
+        return self.team.get_accessible_files_based_on_levels()
     
     def set_roles_for_members_based_on_roles(self, object_target:File|Folder):
         '''this will set the roles for the leaders of the team for the given folder.object target is the
@@ -264,6 +267,9 @@ class TeamMembership(models.Model):
             self.set_roles_for_members_based_on_roles(file)
 
     def save(self, *args, **kwargs):
+        if self.team.leader in self.team.workers.all():
+            raise ValueError("Leader cannot be a worker in the same team.")
+        super().save(*args, **kwargs)
         # https://stackoverflow.com/questions/57452768/how-to-check-if-an-object-is-being-created-for-the-first-time-with-a-custom-prim
         # https://stackoverflow.com/questions/907695/in-a-django-model-custom-save-method-how-should-you-identify-a-new-object
         # https://docs.djangoproject.com/en/5.2/ref/models/instances/#customizing-model-loading
@@ -274,7 +280,6 @@ class TeamMembership(models.Model):
         
         if self._state.adding:
             self.apply_permissions_to_team_members()
-        super().save(*args, **kwargs)
 
     
 
@@ -308,5 +313,21 @@ class AccessCode(models.Model):
     team = models.ForeignKey(Team, on_delete=models.SET_NULL, related_name='access_codes', null=True)
 
     def __str__(self):
-        return f"Access Code: {self.code} for Team: {self.team.name} by {self.created_by.username if self.created_by else 'Unknown'}"
+        return f"Access Code: {self.code}"
+        # for Team: {self.team.name} by {self.created_by.username if self.team.exists() else 'Unknown'}"
 
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # request=kwargs.get('request')
+        # if request.user:
+        #     ac_creator=request.user
+        #     if ac_creator.led_teams.exists(): #meaning he is the leader
+        #         # if the user is a leader of a team, we can assign the access code to the team
+        #         # this will be used to create the access code for the team
+        #         self.team = ac_creator.led_teams.first()
+        #         self.created_by = ac_creator
+        #     else:
+        #         raise ValueError("Access code must be created by a team leader.")
+        # else:
+        #     raise ValueError("Access code must be created by a user.")

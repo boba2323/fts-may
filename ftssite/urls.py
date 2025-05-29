@@ -18,7 +18,12 @@ from django.contrib import admin
 from django.urls import path, include
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework import routers
-from fts_app import views
+# ==========import views from different apps==========
+from fts_app import views as fts_app_views
+from permissions import views as permissions_views
+# ====================================================
+
+
 from debug_toolbar.toolbar import debug_toolbar_urls
 from rest_framework.urlpatterns import format_suffix_patterns
 from django.conf import settings
@@ -26,13 +31,17 @@ from django.conf.urls.static import static
 
 
 router = routers.DefaultRouter()
-router.register(r'users', views.UsersViewSet, basename='myuser')
-router.register(r'files', views.FileViewSet, basename='file')
-router.register(r'tags', views.TagsViewSet, basename='tag')
-router.register(r'folders', views.FolderViewSet, basename='folder')
+router.register(r'users', fts_app_views.UsersViewSet, basename='myuser')
+router.register(r'files', fts_app_views.FileViewSet, basename='file')
+router.register(r'tags', fts_app_views.TagsViewSet, basename='tag')
+router.register(r'folders', fts_app_views.FolderViewSet, basename='folder')
 
-router.register(r'modifications', views.ModificationViewSet, basename='modification')
-router.register(r'actionlog', views.ActionLogViewSet, basename='actionlog')
+router.register(r'modifications', fts_app_views.ModificationViewSet, basename='modification')
+router.register(r'actionlog', fts_app_views.ActionLogViewSet, basename='actionlog')
+
+router.register(r'teams', permissions_views.TeamViewSet, basename='team')
+router.register(r'teammembership', permissions_views.TeamMembershipViewSet, basename='teammembership')
+router.register(r'accesscode', permissions_views.AccessCodeViewSet, basename='accesscode')
 
 urlpatterns = [
     path('admin/', admin.site.urls),

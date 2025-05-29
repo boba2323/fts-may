@@ -7,4 +7,7 @@ class IsAuthorOrReadOnly(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return True
         # Write permissions are only allowed to the author of a post
+        # files and folders have an owner field
         return obj.owner == request.user
+    
+    # we need more logic for actionlog and modification models

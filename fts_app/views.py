@@ -40,15 +40,6 @@ class Home(APIView):
         content = {'message': 'Hello, World!'}
         return Response(content)
 
-# class UserList(APIView):
-#     authentication_classes = [JWTAuthentication]
-#     permission_classes = [IsAuthorOrReadOnly]
-
-#     def get(self, request):
-#         users = User.objects.all()
-#         # We can also serialize querysets instead of model instances. To do so we simply add a many=True flag to the serializer arguments.
-#         serializer = UserSerializer(users, many=True)
-#         return Response(serializer.data)
     
 class UsersViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
@@ -99,6 +90,7 @@ class FileViewSet(viewsets.ModelViewSet):
 
     # https://www.django-rest-framework.org/api-guide/routers/#routing-for-extra-actions
     # url name will be file-download wjile pattern will be file/pk/download/
+    # A viewset may mark extra actions for routing by decorating a method with the @action decorator. These extra actions will be included in the generated routes
     @action(detail=True, methods=['get'])
     def download(self, request, pk=None):
         '''this will create a endpoint at file/pk/download/ where we can download the file. custom logic can be added here'''
