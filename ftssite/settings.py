@@ -76,7 +76,7 @@ REST_FRAMEWORK = {
 SIMPLE_JWT = {
     # custom token serialiser in serliase.py
     "TOKEN_OBTAIN_SERIALIZER": "fts_app.serializers.MyTokenObtainPairSerializer",
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=240),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
     "ROTATE_REFRESH_TOKENS": False,
     "BLACKLIST_AFTER_ROTATION": False,

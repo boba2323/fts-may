@@ -9,10 +9,13 @@ from django.db.models import Q
 from django.db import models
 from django.contrib.auth import get_user_model
 from fts_app.models import Folder, File, Modification, Tag, ActionLog
+
+# =======================reverse================
+from rest_framework.reverse import reverse
 User = get_user_model()
 
 # ===================exceptions====================
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 
 # =============django guadian========================
 from guardian.shortcuts import assign_perm
@@ -51,9 +54,13 @@ class Team(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     # a user can be leader of many teams, but for now we want 1 user to be leader of only 1 team
     # also, 1 user can be part of only 1 team at a time, this is taken care of with constraints in TeamMembership model
-    leader = models.ForeignKey(User, on_delete=models.CASCADE, related_name='led_teams' )
+    leader = models.ForeignKey(User, on_delete=models.CASCADE, related_name='led_teams',null=False) 
     # though reverse relation is "teams" its actual team, singular, we have constrained this model
-    workers = models.ManyToManyField(
+    # ie one user will be part of one team only
+    # only worker is connected to the through model, so when we add user onjects via teammembderships they all go
+    # worker fiekd in team. leader is untouched
+    # we need to rename workers to something else like membership_users since workers is highly misleading
+    membership_users = models.ManyToManyField(
         User,
         through='TeamMembership',
 
@@ -70,6 +77,14 @@ class Team(models.Model):
 
     def __str__(self):
         return self.name
+    
+    def get_workers_of_the_team(self):
+        '''returns the users with worker role'''
+        # https://docs.djangoproject.com/en/5.2/ref/models/querysets/#select-related
+        # select_related is for optimization
+        worker_query = self.memberships.filter(role='worker').select_related('user').all()
+        return worker_query
+
 
     def get_accessible_files_based_on_levels(self):
         '''this will return the files that are accessible to the team based on its level.
@@ -118,6 +133,27 @@ class Team(models.Model):
         for membership in self.memberships.all():
             membership.apply_permissions_to_team_members()
 
+    def save(self, *args, **kwargs):
+        # we can add some validation here to check if the team name is unique
+        # validation to check a user can be leader of only 1 team
+        
+        # .exclude is to ensure that we are not checking the same user if he is already the leader in the object we are updating
+        does_user_exist_as_leader_in_another_team = Team.objects.filter(leader=self.leader).exclude(pk=self.pk).exists()
+        if does_user_exist_as_leader_in_another_team:
+            # if the user is already a leader of another team, we will raise a validation error
+            # this is to ensure that a user can only be a leader of one team at a time
+            raise ValidationError("A user can only be a leader of one team at a time.")
+        super().save(*args, **kwargs)
+        # we can also assign the leader to the team automatically
+        # but we will do that in the TeamMembership model when creating a membership instance
+        # this way we can ensure that the leader is always part of the team
+        # and also we can assign the leader to the team when creating a membership instance
+        # we can create a teamembership trhouh model automatically here
+
+        # throuh_instance,created = TeamMembership.objects.get_or_create(team=self, user=self.leader, role="leader")
+        # if not created:
+        #     throuh_instance.save()
+
 class TeamMembership(models.Model):
     # choices for roles here will be distributed inside the team amongst the user objects
     ROLE_CHOICES = [
@@ -131,6 +167,8 @@ class TeamMembership(models.Model):
     # same for teams, there can be multiple memberships for different users
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='memberships')
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='memberships')
+    # the role is merely a tag for the users, all users that are saved via the through model are saved as workers regardles
+    # of what role we assign them
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
 
     class Meta:
@@ -149,9 +187,30 @@ class TeamMembership(models.Model):
         # meanign the user wont be repeated more than once in a row, that means
         # he will be assigned a team and role only once
         constraints = [
+            # user will not be repeated meaning a user is assigned a team/role only once
             models.UniqueConstraint(fields=['user'], name='one_team_per_user',
-                                    violation_error_message="A user can only be part of one team at a time.")
+                                    violation_error_message="A user can only be part of one team at a time-unique constraint of teammembership."),
+
+            # if one user is given Leader, the leader role cannot be given to another use in the same teammembership
+            # if u1 is leader once, he wont be leader again anywhere, (u1, leader), (u2, leader) this wont happenanother time
+            models.UniqueConstraint(fields=['user'], name='one_leader_per_user_in_team',
+                                    condition=Q(role='leader'),
+                                    violation_error_message="a user can be leader only once in a team, in case he is added to the team twice which is impossible-unique constraint of teammembership."),
+            
+            # (user1, team1, leader) this wont happen again. so once user1 gets leader in team1 it wont happen anymore 
+            # eg(leader, team1, user2) might occur but it will be contradicted by one_leader_per_team
+            # 
+            models.UniqueConstraint(fields=['team', 'user'], name='one_user_leader_only_once_one_team',
+                                    condition=Q(role='leader'),
+                                    violation_error_message="A user can only be leader of one team at a time-unique constraint of teammembership."),
+            # if a team and a leader occurs, it wont occur again (T1, leader) (t2, leader). they will never occur again, thus 1 leader per team
+            models.UniqueConstraint(fields=['team'], name='one_leader_per_team',
+                                    condition=Q(role='leader'),
+                                    violation_error_message="all team can have only 1 leader-unique constraint of teammembership.")
+        
+        
         ]
+        
 
     def __str__(self):
         return f"{self.user.username} - {self.team.name} ({self.role})"
@@ -266,9 +325,27 @@ class TeamMembership(models.Model):
         for file in accessible_files:
             self.set_roles_for_members_based_on_roles(file)
 
+    def check_if_user_roles_already_exists(self,*args, **kwargs):
+        '''the error messages are raised and they explain pretty well what is going on'''
+        if not self.pk:
+            leader_from_team_creation = self.team.leader
+            # if self.user == leader_from_team_creation and self.role == 'leader':
+            #     raise ValidationError("This user is already a leader of the team related to this teamembership.")
+            if self.user == leader_from_team_creation and self.role == 'worker':
+                raise ValidationError("This user is already a leader of the team related to this teamembership. Cannot assign worker role to a leader.")
+            if self.team.leader and self.role == 'leader':
+                # if the team already has a leader, we cannot assign another leader
+                if self.user != self.team.leader:
+                    raise ValidationError("This team already has a leader. Cannot assign another leader.")
+            
+    def clean(self):
+        self.check_if_user_roles_already_exists()
+
     def save(self, *args, **kwargs):
-        if self.team.leader in self.team.workers.all():
-            raise ValueError("Leader cannot be a worker in the same team.")
+        # workers = TeamMembership.objects.filter(team=self.team, role='worker')
+        # leader = TeamMembership.objects.filter(team=self.team, role='leader').first()
+        self.full_clean()  # this will call the clean method and check for validation errors   
+
         super().save(*args, **kwargs)
         # https://stackoverflow.com/questions/57452768/how-to-check-if-an-object-is-being-created-for-the-first-time-with-a-custom-prim
         # https://stackoverflow.com/questions/907695/in-a-django-model-custom-save-method-how-should-you-identify-a-new-object
@@ -309,13 +386,31 @@ class AccessCode(models.Model):
     # instead we attached them via fk field in the folder and file models. this way many 1 code will be shared by
     # many files and folders. this is a many to one relationship.
 
+    # related reverse relation called folders and files exist here
+
     # teams will have accesscodes. we have decided that 1 team will have 1 access code at a time. no sharing!! 
-    team = models.ForeignKey(Team, on_delete=models.SET_NULL, related_name='access_codes', null=True)
+    # if null=true, then we were unable to set contrainsts for it
+    # setting NULL WILL CAUSE ERROR IN THE CONSTRAINT
+    team = models.ForeignKey(Team, on_delete=models.PROTECT, related_name='access_codes')
+
+    class Meta:
+        # PERMISSIONS we need to enforce for access
+        constraints=[
+            # 1 team can have only 1 accesscode at a time
+                # code is already unique and we might remvoe code from fields
+            models.UniqueConstraint(fields=['team'], name='one_code_per_team',
+                                    # condition=Q(team__isnull=False),
+                                    violation_error_message="Only one code per team is allowed-unique constraint for access code"),
+                                    # a creater i.e a user can create only 1 code at a time, no restrictions for the superuser
+            # 1 ac can be give to a file/folder only once
+            # the ac can be accessed by the user only through team
+        ]
 
     def __str__(self):
         return f"Access Code: {self.code}"
         # for Team: {self.team.name} by {self.created_by.username if self.team.exists() else 'Unknown'}"
 
+     
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)

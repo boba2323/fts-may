@@ -35,6 +35,7 @@ class Folder(models.Model):
     # accesscodes
     # for 1 access code, there can be many folders
     # accesscode is within quotation to prevent cicular impport
+    # many folders for 1 access code
     access_code = models.ForeignKey('permissions.AccessCode', on_delete=models.SET_NULL, null=True, blank=True, related_name='folders')
     
     

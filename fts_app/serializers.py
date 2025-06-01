@@ -12,9 +12,14 @@ class UserSerializer(serializers.HyperlinkedModelSerializer):
     # here for owned_files. the field must exist in the model
     owned_files= serializers.PrimaryKeyRelatedField(many=True ,queryset=File.objects.all()) 
     url = serializers.HyperlinkedIdentityField(view_name='myuser-detail')  # Expects a URL pattern named 'myuser-detail'
+    created_access_codes=serializers.HyperlinkedRelatedField(
+        many=True, 
+        view_name='accesscode-detail', 
+        read_only=True
+    )  # Reverse relation to AccessCode model
     class Meta:
         model = User
-        fields = ['url', 'id', 'username', 'email', 'password', 'owned_files']  # Include 'url' field
+        fields = ['url', 'id', 'username', 'email', 'password', 'owned_files', 'created_access_codes']  # Include 'url' field
         # extra_kwargs = {'password': {'write_only': True}}
 
 # a user object is created when we call the save method on it.
@@ -43,12 +48,46 @@ class TagSerializer(serializers.HyperlinkedModelSerializer):
         model =  Tag
         fields = ['url', 'id', 'name']  # Include 'url'
 
+
+class FileSerializer(serializers.HyperlinkedModelSerializer):
+    # view name in the hyperlink seriliaser field suffix should match the name of thr router in urls.py
+    # if viewname is file-detail, then router suffix name should be file, not files
+    url = serializers.HyperlinkedIdentityField( read_only=True, view_name='file-detail')  # Expects a URL pattern named 'file-detail'
+    tags = TagSerializer(many=True, read_only=True)
+    owner_username_at_creation = serializers.PrimaryKeyRelatedField(read_only=True)
+    download_url = serializers.SerializerMethodField()
+    class Meta:
+        model = File
+        fields = ['url', 'id', 'file_data', 'name', 'owner', 'owner_username_at_creation', 'date_created','permissions', 
+                   'folder', 'tags', 'download_url', "access_code"] 
+
+    def get_download_url(self, obj, *args, **kwargs):
+        # obj is thhe model instance being serialised
+        '''this method will link the download to the serializer field download_url. we will use the reverse function to get the url.'''
+     
+        # obtaining the request object and passing it in the function
+        # https://www.geeksforgeeks.org/pass-request-context-to-serializer-from-viewset-in-django-rest-framework/
+        request = self.context.get('request')
+
+        # https://www.django-rest-framework.org/api-guide/reverse/
+        # we build our url using the reverse function
+        relative_download_url=reverse('file-download', args=[obj.id], request=request)
+
+        # https://www.geeksforgeeks.org/get-the-absolute-url-with-domain-in-django/
+        # we create the absolute url with with the relative url
+        return request.build_absolute_uri(relative_download_url)
+
 class FolderSerializer(serializers.HyperlinkedModelSerializer):
     # after we add readonly, the subfolders does not need to be added
     subfolders=serializers.HyperlinkedRelatedField(many=True, view_name='folder-detail', read_only=True)
   
     # reverse relation files for the folder
-    files=serializers.HyperlinkedRelatedField(many=True, view_name='file-detail', read_only=True)
+    # files=serializers.HyperlinkedRelatedField(many=True, view_name='file-detail', read_only=True)
+
+    # https://stackoverflow.com/questions/14573102/how-do-i-include-related-model-fields-using-django-rest-framework
+    # we can do files this way too, by making use of the serliasier we made for file. this way we get the hyperlink and also the extra data
+    # remember it is a reverse field 
+    files=FileSerializer(many=True, read_only=True)
     # we want all subfolders shown recursively
     all_subfolders = serializers.SerializerMethodField()
     all_files = serializers.SerializerMethodField()
@@ -92,6 +131,7 @@ class FolderSerializer(serializers.HyperlinkedModelSerializer):
             {
                 'id': subfolder.id,
                 'name': subfolder.name,
+                # THIS is how we get to further deeply nested subfolders by a recurring function 
                 'all_subfolders': self.build_subfolder_tree(subfolder),
                 'files':[ reverse('file-detail', args=[file.id], request=request) for file in subfolder.files.all()]
             }
@@ -128,32 +168,7 @@ class FolderSerializer(serializers.HyperlinkedModelSerializer):
 
 
 
-class FileSerializer(serializers.HyperlinkedModelSerializer):
-    # view name in the hyperlink seriliaser field suffix should match the name of thr router in urls.py
-    # if viewname is file-detail, then router suffix name should be file, not files
-    url = serializers.HyperlinkedIdentityField( read_only=True, view_name='file-detail')  # Expects a URL pattern named 'file-detail'
-    tags = TagSerializer(many=True, read_only=True)
-    owner_username_at_creation = serializers.PrimaryKeyRelatedField(read_only=True)
-    download_url = serializers.SerializerMethodField()
-    class Meta:
-        model = File
-        fields = ['url', 'id', 'file_data', 'name', 'owner', 'owner_username_at_creation', 'date_created','permissions', 
-                   'folder', 'tags', 'download_url', "access_code"] 
 
-    def get_download_url(self, obj, *args, **kwargs):
-        '''this method will link the download to the serializer field download_url. we will use the reverse function to get the url.'''
-     
-        # obtaining the request object and passing it in the function
-        # https://www.geeksforgeeks.org/pass-request-context-to-serializer-from-viewset-in-django-rest-framework/
-        request = self.context.get('request')
-
-        # https://www.django-rest-framework.org/api-guide/reverse/
-        # we build our url using the reverse function
-        relative_download_url=reverse('file-download', args=[obj.id], request=request)
-
-        # https://www.geeksforgeeks.org/get-the-absolute-url-with-domain-in-django/
-        # we create the absolute url with with the relative url
-        return request.build_absolute_uri(relative_download_url)
 
 
 
