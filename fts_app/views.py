@@ -31,6 +31,10 @@ User = get_user_model()
 class IndexView(generic.TemplateView):
     template_name = "fts_app/index.html"
 
+# https://tech.serhatteker.com/post/2020-09/enable-partial-update-drf/
+#  A viewset that provides default `create()`, `retrieve()`, `update()`,
+#     `partial_update()`, `destroy()` and `list()` actions.
+#     """
 
 class Home(APIView):
     # authentication_classes = [JWTAuthentication]
@@ -53,7 +57,7 @@ class UsersViewSet(viewsets.ModelViewSet):
 class FileViewSet(viewsets.ModelViewSet):
     queryset = File.objects.all()
     serializer_class = FileSerializer
-    permission_classes = [IsAuthorOrReadOnly]
+    # permission_classes = [IsAuthorOrReadOnly]
     authentication_classes = [JWTAuthentication]
 
     #  checking for request meta
@@ -149,6 +153,26 @@ class FileViewSet(viewsets.ModelViewSet):
         action_log.save()
         return response
 
+
+    # def list(self, request):
+    #     logged_user = request.user
+    #     # check the users accesscode
+    #     # if logged_user.
+    #     pass
+    
+    # https://stackoverflow.com/questions/41110742/django-rest-framework-partial-update
+    # As we can see PUT updates the every resource of entire data, 
+    # whereas PATCH updates the partial of data.In other words: 
+    # We can say PUT replace where PATCH modify.So in this article we are going to look for PATCH method.
+    # def update(self, request, *args, **kwargs):
+    #     kwargs['partial'] = True
+    #     return super().update(request, *args, **kwargs)
+
+    # for updating, we cant do anything about the browsable api throwing a "file_data": [
+        # "The submitted data was not a file. Check the encoding type on the form."
+    # ]
+    # the best way to handle this is via front end
+
 class TagsViewSet(viewsets.ModelViewSet):
     queryset = Tag.objects.all()
     serializer_class = TagSerializer
@@ -162,7 +186,7 @@ class GroupViewSet(viewsets.ModelViewSet):
 class FolderViewSet(viewsets.ModelViewSet):
     queryset = Folder.objects.all()
     serializer_class = FolderSerializer
-    permission_classes = [IsAuthorOrReadOnly]
+    # permission_classes = [IsAuthorOrReadOnly]
     authentication_classes = [JWTAuthentication]
 
     # https://stackoverflow.com/questions/72197928/drf-viewset-extra-action-action-serializer-class

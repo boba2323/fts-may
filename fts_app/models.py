@@ -68,6 +68,16 @@ class File(models.Model):
         return self.__class__.__name__.lower()
     
     def save(self, *args, **kwargs):
+            # for updating, we cant do anything about the browsable api throwing a "file_data": [
+        # "The submitted data was not a file. Check the encoding type on the form."
+    # ]
+    # the best way to handle this is via front end
+        # we need to save the existing file to the db when updating
+        # if self.pk:
+        #     print("file used from the db to api field")
+        #     existing_file = File.objects.filter(pk=self.pk).first()
+        #     self.file_data = existing_file.file_data
+
         if self.owner and not self.owner_username_at_creation:
             self.owner_username_at_creation = self.owner.username
         super().save(*args, **kwargs)

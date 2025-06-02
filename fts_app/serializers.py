@@ -60,6 +60,23 @@ class FileSerializer(serializers.HyperlinkedModelSerializer):
         model = File
         fields = ['url', 'id', 'file_data', 'name', 'owner', 'owner_username_at_creation', 'date_created','permissions', 
                    'folder', 'tags', 'download_url', "access_code"] 
+        
+    def validate(self, data):
+        '''if we are updating if file already exists, then the same file will be kept because the browser api field says no file chosen'''
+        # this is not working since the validation for the type encoding of the file field is done before
+        # print("validation")
+        # if self.instance.pk:
+        #     print("file used from the db to api field")
+        #     existing_file = File.objects.filter(pk=self.instance.pk).first()
+        #     data['file_data'] = existing_file.file_data
+
+        # for updating, we cant do anything about the browsable api throwing a "file_data": [
+        # "The submitted data was not a file. Check the encoding type on the form."
+        # ]
+    # the best way to handle this is via front end
+
+        return super().validate(data)
+
 
     def get_download_url(self, obj, *args, **kwargs):
         # obj is thhe model instance being serialised

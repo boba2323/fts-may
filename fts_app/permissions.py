@@ -11,3 +11,5 @@ class IsAuthorOrReadOnly(permissions.BasePermission):
         return obj.owner == request.user
     
     # we need more logic for actionlog and modification models
+
+

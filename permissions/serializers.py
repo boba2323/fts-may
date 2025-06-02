@@ -78,9 +78,14 @@ class AccessCodeSerializer(serializers.HyperlinkedModelSerializer):
             return team
         return "No team assigned"
     # https://www.django-rest-framework.org/api-guide/serializers/#field-level-validation
+    # we are adding a validation in the field rather than in the object
 
     def validate_team(self, team_obj):
         team_code = team_obj.access_codes.all().first()
+    # https://www.django-rest-framework.org/api-guide/serializers/#accessing-the-initial-data-and-instance
+    # use .instance to access serialiaser object
+        if self.instance.team == team_obj:
+            return team_obj
         
         if team_code:
             print(team_code.code)
@@ -89,5 +94,7 @@ class AccessCodeSerializer(serializers.HyperlinkedModelSerializer):
         return team_obj
 
     # https://www.django-rest-framework.org/api-guide/serializers/#saving-instances
-    def update(self, instance, validated_data):
-        return instance
+    # def update(self, instance, validated_data):
+    #     # team = validated_data['team']
+    #     # if team.pk == self.pk:
+    #     return instance

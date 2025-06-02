@@ -54,6 +54,7 @@ class Team(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     # a user can be leader of many teams, but for now we want 1 user to be leader of only 1 team
     # also, 1 user can be part of only 1 team at a time, this is taken care of with constraints in TeamMembership model
+    # but we have not constraint it in the team model because we may plan on expanding leaders in future
     leader = models.ForeignKey(User, on_delete=models.CASCADE, related_name='led_teams',null=False) 
     # though reverse relation is "teams" its actual team, singular, we have constrained this model
     # ie one user will be part of one team only
@@ -133,26 +134,46 @@ class Team(models.Model):
         for membership in self.memberships.all():
             membership.apply_permissions_to_team_members()
 
+    def create_or_update_TM(self, created_first_time, previous_leader):
+        '''with flags created first time, it checks if the team instance exists, if it does, it finds the 
+        TM related to the team and leader and updates the TM with new leader, if team does not exist, it create a new
+        TM with the leader in the current team field'''
+        if not created_first_time: #check if the team instance already exists so we can find the related TM instance
+            try:
+                existing_teammembership=TeamMembership.objects.get(user=previous_leader, team=self, role="leader")
+                existing_teammembership.user=self.leader
+                existing_teammembership.role='leader'
+                existing_teammembership.save()
+            except Exception as e:
+                # If no existing membership for old leader, create for new leader
+                TeamMembership.objects.get_or_create(user=self.leader, team=self, role='leader')
+        # when team is saved first time, it will also create a teammembership through instance that saves the TM.user as the leader
+        # with role as leader
+        else: #meaning this particular team instance is being created for first time
+            TeamMembership.objects.get_or_create(user=self.leader, team=self, role='leader')
+
     def save(self, *args, **kwargs):
         # we can add some validation here to check if the team name is unique
         # validation to check a user can be leader of only 1 team
-        
         # .exclude is to ensure that we are not checking the same user if he is already the leader in the object we are updating
         does_user_exist_as_leader_in_another_team = Team.objects.filter(leader=self.leader).exclude(pk=self.pk).exists()
         if does_user_exist_as_leader_in_another_team:
             # if the user is already a leader of another team, we will raise a validation error
             # this is to ensure that a user can only be a leader of one team at a time
             raise ValidationError("A user can only be a leader of one team at a time.")
-        super().save(*args, **kwargs)
-        # we can also assign the leader to the team automatically
-        # but we will do that in the TeamMembership model when creating a membership instance
-        # this way we can ensure that the leader is always part of the team
-        # and also we can assign the leader to the team when creating a membership instance
-        # we can create a teamembership trhouh model automatically here
+        
+        # lets check if the teammembership instance for this particular team instance exists. then we will know
+        previous_leader = None
+        created_first_time = self.pk is None
+        if not created_first_time: #check if the team instance already exists so we record the existing leader
+            existing_team = Team.objects.get(pk=self.pk)
+            previous_leader=existing_team.leader
 
-        # throuh_instance,created = TeamMembership.objects.get_or_create(team=self, user=self.leader, role="leader")
-        # if not created:
-        #     throuh_instance.save()
+        # the team model should be saved first as good code practices
+        super().save(*args, **kwargs)
+        self.create_or_update_TM(created_first_time, previous_leader)
+
+    
 
 class TeamMembership(models.Model):
     # choices for roles here will be distributed inside the team amongst the user objects
@@ -337,6 +358,16 @@ class TeamMembership(models.Model):
                 # if the team already has a leader, we cannot assign another leader
                 if self.user != self.team.leader:
                     raise ValidationError("This team already has a leader. Cannot assign another leader.")
+                
+    def replace_leader(self, new_leader):
+        '''while a team cannot have more than 1 leader i.e a teammemebership cannot have a team with condition leader more than once
+        one_leader_per_team constraint. hence we remove the old leader when we make changes in the leader of the team.
+        '''
+        # we are changing teams but the logic here needs old user to that particular teammembership model needs to be replaced before it can be saved
+        if self.role=='leader':
+            self.leader = new_leader
+
+
             
     def clean(self):
         self.check_if_user_roles_already_exists()
@@ -407,12 +438,13 @@ class AccessCode(models.Model):
         ]
 
     def __str__(self):
-        return f"Access Code: {self.code}"
+        return f"Access Code:  Belonging to {self.team.name}"
         # for Team: {self.team.name} by {self.created_by.username if self.team.exists() else 'Unknown'}"
 
      
 
     def save(self, *args, **kwargs):
+
         super().save(*args, **kwargs)
         # request=kwargs.get('request')
         # if request.user:
