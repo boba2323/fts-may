@@ -10,6 +10,11 @@ from django.utils import timezone
 # changing: authors = models.ManyToManyField(User, null=True,blank=True)
 # To: authors = models.ManyToManyField(‘User,’ null=True,blank=True)
 # the solution
+# from permissions.models import Team, TeamMembership, AccessCode
+
+
+# ==================avoid circular imports========================
+from django.apps import apps
 
 
 
@@ -38,13 +43,15 @@ class Folder(models.Model):
     # many folders for 1 access code
     access_code = models.ForeignKey('permissions.AccessCode', on_delete=models.SET_NULL, null=True, blank=True, related_name='folders')
     
-    
+    # ALL FOLDERS SHOULD BE ABAILABLE, EXCEPT THE VERY NESTED IN. MEANING FOLDERS WONT HAVE AN ACCESCODE OR BELONG TO A TEAM
+    # BUT USERS WILL BE RESTRICTED IN CREATING, DELETING, PUT/PATCH ETC. THAT WIL BE DONE THROUGH PERMS
     def __str__(self):
         return self.name
     
     # need it so we can use it in rbacperms for dj-guardian
     def get_model_name(self):
         return self.__class__.__name__.lower()
+    
 
 class File(models.Model):
     file_data = models.FileField(upload_to='user_files/')
@@ -67,6 +74,31 @@ class File(models.Model):
     def get_model_name(self):
         return self.__class__.__name__.lower()
     
+    def get_team_of_the_file(self):
+        '''the file will only belong to a team if an accesscode has been applied to it via file endpoint'''
+        # check if accesscode of file exist
+        # store the accesscode instance 
+        file_access_code = self.access_code
+        if not file_access_code:
+            return None
+        # get the team
+        team_to_which_file_belong = file_access_code.team
+        return team_to_which_file_belong
+    
+    def get_file_team_workers(self):
+        '''filter a teammembership instances of team to while file belongs and role workers'''
+        # this is a great way to get around the circular import issue
+        TeamMembership = apps.get_model('permissions', 'TeamMembership')
+        team_to_which_file_belong = self.get_team_of_the_file()
+        team_workers = TeamMembership.objects.filter(team=team_to_which_file_belong, role='worker')
+        if not team_workers.exists():
+            return None
+        return team_workers
+
+
+  
+
+
     def save(self, *args, **kwargs):
             # for updating, we cant do anything about the browsable api throwing a "file_data": [
         # "The submitted data was not a file. Check the encoding type on the form."
@@ -81,6 +113,22 @@ class File(models.Model):
         if self.owner and not self.owner_username_at_creation:
             self.owner_username_at_creation = self.owner.username
         super().save(*args, **kwargs)
+
+        # to proceed withh after a accesscode was granted to a file
+        # all accesscode are formed with a team, this is guaranteed by the model
+
+        # from htereon we proceed step by step
+
+        team_to_which_file_belong = self.get_team_of_the_file()
+        if team_to_which_file_belong:
+            # get the  team membership, but a team can have many memberships.
+            file_team_memberships = team_to_which_file_belong.memberships.all()
+            for file_team_membership in file_team_memberships:
+            # use the method that we made in the membership model
+                file_team_membership.set_roles_for_members_based_on_roles(self)
+        
+
+           
 
 class Modification(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

@@ -25,7 +25,7 @@ from datetime import timedelta
 # ----
 
 # import custom permissions
-from fts_app.permissions import IsAuthorOrReadOnly
+from fts_app.permissions import IsAuthorOrReadOnly, TeamsAndRolesFiles, TeamsAndRolesFolders
 
 User = get_user_model()
 

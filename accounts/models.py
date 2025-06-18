@@ -3,6 +3,7 @@ from django.contrib.auth.models import User
 from django.db import models
 from django.contrib.auth.models import BaseUserManager, AbstractBaseUser
 from django.contrib.auth.models import PermissionsMixin
+from django.apps import apps
 
 class MyuserManager(BaseUserManager):
     def create_user(self, username, email, password=None):
@@ -87,6 +88,39 @@ class Myuser(AbstractBaseUser, PermissionsMixin):
         "Is the user a member of staff?"
         # Simplest possible answer: All admins are staff
         return self.is_admin
+    
+    @property
+    def supervisor(self):
+        return self.is_supervisor
+    
+    def get_team_membership(self):
+        TeamMembership = apps.get_model('permissions', 'TeamMembership')
+        if self.memberships.exists():
+            team_membership_of_user = self.memberships.first()
+            return team_membership_of_user
+        return None
+    
+    def is_team_level_L1(self):
+        team_membership = self.get_team_membership()
+        if team_membership:
+            return team_membership.team.level == "L1"
+        return False
+    
+    def is_team_leader(self):
+        team_membership = self.get_team_membership()
+        if team_membership:
+            return team_membership.role == "leader"
+        return False
+
+    def get_access_code_instance(self):
+        team_membership = self.get_team_membership()
+        if team_membership:
+            if team_membership.team.access_codes.exists():
+                team_access_code_instance = team_membership.team.access_codes.first()
+                return team_access_code_instance
+            return None
+            
+        return None
 
 
 class Profile(models.Model):

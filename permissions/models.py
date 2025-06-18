@@ -80,25 +80,61 @@ class Team(models.Model):
         return self.name
     
     def get_workers_of_the_team(self):
-        '''returns the users with worker role'''
+        '''returns queryset of TM instances with worker role'''
         # https://docs.djangoproject.com/en/5.2/ref/models/querysets/#select-related
         # select_related is for optimization
         worker_query = self.memberships.filter(role='worker').select_related('user').all()
         return worker_query
+    
 
+    @staticmethod #static method used since there is no use of the classs here
+    def get_user_team_membership(logged_user):
+        user_team_membership = logged_user.memberships.first()
+        if user_team_membership:
+            return user_team_membership
+        return None
+    
 
-    def get_accessible_files_based_on_levels(self):
+    # HERE WE USE CLASSMETHOD BECAUSE WE ARE FILTERING ON THE WHOLE MODEL, WE ARE NOT USING A INSTANCE OF THE 
+    @classmethod
+    def get_accessible_files_based_on_levels(cls, logged_user):
         '''this will return the files that are accessible to the team based on its level.
         L1 teams will have access to all files, L2 teams will have access to only targetted files
         and L3 teams will have read only access to targetted files.'''
-        if self.level == 'L1':
-            return File.objects.all()
-        elif self.level == 'L2' or self.level == 'L3':
-            # L2 teams will have access to only targetted files
-            # we can use the access codes to filter the files
-            if self.access_codes.exists():
-                team_access_codes = self.access_codes.all()
-                return File.objects.filter(access_code__in=team_access_codes)
+        
+        if logged_user.is_authenticated:
+            # check for supervisor mode
+            if logged_user.is_supervisor:
+                return File.objects.all()
+            # if user is not a part of a team, return None object queryset
+            user_team_membership = cls.get_user_team_membership(logged_user)
+            if not user_team_membership: #if team is None, there is no teammembership attached to the user, return a empty queryset
+                return File.objects.none()
+            # if user is has a related membership instance
+    
+            # check if there is team that the user belongs to what are the levels of teams they belong to
+            user_team = user_team_membership.team
+            if not user_team: # if not team are attached to user, return empty queryset
+                return File.objects.none()
+
+            user_team_level = user_team.level
+            if not user_team_level: #check if a level was assigned to that team, if not return empty
+                return File.objects.none()
+            
+            if user_team_level=='L1': # if level exists, check the level
+                # grant full permissions to every file/folder
+                return File.objects.all()
+            elif user_team_level == 'L2' or user_team_level=='L3':
+                # find the accesscode attached to the team and check if it exists 
+                access_code_instance = user_team.access_codes.first()
+                if access_code_instance: 
+                    access_code = access_code_instance.code
+                    files_accessible = File.objects.filter(access_code=access_code)
+                    return files_accessible
+            else:
+                return File.objects.none()
+
+        else:
             return File.objects.none()
         
 
@@ -259,6 +295,7 @@ class TeamMembership(models.Model):
 
         # now after we check for levels, the granulation of permisions based on 
         # levels will also be handled here
+        print("=================================HERE ROLES ARE APPLIED===============================")
         model_name = object_target.get_model_name()
         if self.team.level == 'L1':
             if self.role == 'leader':
@@ -280,7 +317,7 @@ class TeamMembership(models.Model):
                 assign_perm(f"delete_{model_name}", self.user, object_target)
             elif self.role == 'worker':
                 assign_perm(f"view_{model_name}", self.user, object_target)
-                assign_perm(f"add_{model_name}", self.user, object_target)
+                assign_perm(f"change_{model_name}", self.user, object_target)
         elif self.team.level == 'L3':
             if self.role == 'leader':
                 assign_perm(f"view_{model_name}", self.user, object_target)
@@ -359,14 +396,13 @@ class TeamMembership(models.Model):
                 if self.user != self.team.leader:
                     raise ValidationError("This team already has a leader. Cannot assign another leader.")
                 
-    def replace_leader(self, new_leader):
-        '''while a team cannot have more than 1 leader i.e a teammemebership cannot have a team with condition leader more than once
-        one_leader_per_team constraint. hence we remove the old leader when we make changes in the leader of the team.
-        '''
-        # we are changing teams but the logic here needs old user to that particular teammembership model needs to be replaced before it can be saved
-        if self.role=='leader':
-            self.leader = new_leader
-
+    # def replace_leader(self, new_leader):
+    #     '''while a team cannot have more than 1 leader i.e a teammemebership cannot have a team with condition leader more than once
+    #     one_leader_per_team constraint. hence we remove the old leader when we make changes in the leader of the team.
+    #     '''
+    #     # we are changing teams but the logic here needs old user to that particular teammembership model needs to be replaced before it can be saved
+    #     if self.role=='leader':
+    #         self.leader = new_leader
 
             
     def clean(self):

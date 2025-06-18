@@ -17,10 +17,35 @@ class UserSerializer(serializers.HyperlinkedModelSerializer):
         view_name='accesscode-detail', 
         read_only=True
     )  # Reverse relation to AccessCode model
+
+    belongs_to_team = serializers.SerializerMethodField()
+    team_access_level = serializers.SerializerMethodField()
+    role = serializers.SerializerMethodField()
     class Meta:
         model = User
-        fields = ['url', 'id', 'username', 'email', 'password', 'owned_files', 'created_access_codes']  # Include 'url' field
+        fields = ['url', 'id', 'username', 'email', 'password', 'belongs_to_team', "team_access_level", 'owned_files', 'created_access_codes'
+                  ,'role']  # Include 'url' field
         # extra_kwargs = {'password': {'write_only': True}}
+
+    def get_belongs_to_team(self, user):
+        team_membership=user.memberships.first()
+        if team_membership and team_membership.team:
+            return team_membership.team.name
+        return None
+    
+    def get_team_access_level(self, user):
+        user_membership = user.get_team_membership()
+        if not user_membership:
+            return None
+        team_access_level = user_membership.team.level
+        return team_access_level
+
+    def get_role(self, user):
+        user_membership = user.get_team_membership()
+        if user_membership:
+            return user_membership.role
+        return None
+        
 
 # a user object is created when we call the save method on it.
 # https://www.django-rest-framework.org/tutorial/1-serialization/
@@ -56,27 +81,32 @@ class FileSerializer(serializers.HyperlinkedModelSerializer):
     tags = TagSerializer(many=True, read_only=True)
     owner_username_at_creation = serializers.PrimaryKeyRelatedField(read_only=True)
     download_url = serializers.SerializerMethodField()
+    team = serializers.SerializerMethodField()
     class Meta:
         model = File
         fields = ['url', 'id', 'file_data', 'name', 'owner', 'owner_username_at_creation', 'date_created','permissions', 
-                   'folder', 'tags', 'download_url', "access_code"] 
+                   'folder', 'tags', 'download_url', "access_code", "team"] 
         
-    def validate(self, data):
-        '''if we are updating if file already exists, then the same file will be kept because the browser api field says no file chosen'''
-        # this is not working since the validation for the type encoding of the file field is done before
-        # print("validation")
-        # if self.instance.pk:
-        #     print("file used from the db to api field")
-        #     existing_file = File.objects.filter(pk=self.instance.pk).first()
-        #     data['file_data'] = existing_file.file_data
+    # def validate(self, data):
+    #     '''if we are updating if file already exists, then the same file will be kept because the browser api field says no file chosen'''
+    #     # this is not working since the validation for the type encoding of the file field is done before
+    #     # print("validation")
+    #     # if self.instance.pk:
+    #     #     print("file used from the db to api field")
+    #     #     existing_file = File.objects.filter(pk=self.instance.pk).first()
+    #     #     data['file_data'] = existing_file.file_data
 
-        # for updating, we cant do anything about the browsable api throwing a "file_data": [
-        # "The submitted data was not a file. Check the encoding type on the form."
-        # ]
-    # the best way to handle this is via front end
+    #     # for updating, we cant do anything about the browsable api throwing a "file_data": [
+    #     # "The submitted data was not a file. Check the encoding type on the form."
+    #     # ]
+    # # the best way to handle this is via front end
 
-        return super().validate(data)
+    #     return super().validate(data)
 
+    def get_team(self, obj):
+        if not obj.access_code:
+            return None
+        return obj.access_code.team.name
 
     def get_download_url(self, obj, *args, **kwargs):
         # obj is thhe model instance being serialised
@@ -93,6 +123,44 @@ class FileSerializer(serializers.HyperlinkedModelSerializer):
         # https://www.geeksforgeeks.org/get-the-absolute-url-with-domain-in-django/
         # we create the absolute url with with the relative url
         return request.build_absolute_uri(relative_download_url)
+    
+    def save(self, **kwargs):
+        request = self.context.get('request')
+        # check if its being saved first time or updated
+        is_it_being_updated = self.instance is not None
+
+
+        # https://stackoverflow.com/questions/72003550/how-can-i-access-the-created-instance-by-a-serializer-in-a-view
+        # Calling .save() will either create a new instance, or update an existing instance, depending on if an existing instance was passed when instantiating the serializer class:
+        file_instance = super().save(**kwargs)
+        user = request.user
+        if not user.is_authenticated:
+            raise ValueError("You are not logged in what the hell")
+        user_membership = user.get_team_membership()
+        if not user_membership:
+            raise ValueError("You are not in a team")
+        user_team_name = user_membership.team.name
+        user_team_level = user_membership.team.level
+        user_role = user_membership.role
+        perms_string = f"Team: {user_team_name}, Team-Level: {user_team_level}, Role: {user_role}"
+        # File = self.serializer_class.Meta.model
+        modification = Modification(
+            file=file_instance,
+            modified_by=user,
+            permissions_at_modification=perms_string,
+            method= "updated" if is_it_being_updated else "created"
+        )
+        modification.save()
+
+        # actionlog
+        action_log = ActionLog(
+            user=user,
+            action_type="updated" if is_it_being_updated else "created",
+            file=file_instance,
+            folder=file_instance.folder if file_instance.folder else None
+        )
+        action_log.save()
+
 
 class FolderSerializer(serializers.HyperlinkedModelSerializer):
     # after we add readonly, the subfolders does not need to be added
@@ -104,7 +172,9 @@ class FolderSerializer(serializers.HyperlinkedModelSerializer):
     # https://stackoverflow.com/questions/14573102/how-do-i-include-related-model-fields-using-django-rest-framework
     # we can do files this way too, by making use of the serliasier we made for file. this way we get the hyperlink and also the extra data
     # remember it is a reverse field 
-    files=FileSerializer(many=True, read_only=True)
+    # files=FileSerializer(many=True, read_only=True)
+    # not gonna show all files like this field does
+
     # we want all subfolders shown recursively
     all_subfolders = serializers.SerializerMethodField()
     all_files = serializers.SerializerMethodField()
@@ -115,7 +185,7 @@ class FolderSerializer(serializers.HyperlinkedModelSerializer):
         fields = ['url', 'id', 'owner', 'name', 'date_created', 'parent_folder', 'permissions', 
                   'subfolders',
                   'total_subfolders',
-                  'files',
+                #   'files',
                   'all_subfolders',
                   'all_files', "access_code"
                   ]  # Include 'url'
@@ -150,32 +220,58 @@ class FolderSerializer(serializers.HyperlinkedModelSerializer):
                 'name': subfolder.name,
                 # THIS is how we get to further deeply nested subfolders by a recurring function 
                 'all_subfolders': self.build_subfolder_tree(subfolder),
-                'files':[ reverse('file-detail', args=[file.id], request=request) for file in subfolder.files.all()]
+                'files':[ reverse('file-detail', args=[file.id], request=request) for file in self._return_all_accessible_files(folder)]
             }
             for subfolder in folder.subfolders.all()
         ]
     def get_all_files(self, obj):
+        # it will only return the accessible files
         return self.build_file_tree(obj)
+    
+    def _return_all_accessible_files(self, obj_folder):
+        request = self.context.get('request')
+        user = request.user
+        if not user.is_authenticated:
+            return None
+        if user.supervisor:
+            return obj_folder.files.all()
+        user_team=user.get_team_membership().team
+        if not user_team:
+            return None
+        if user_team.level == "L1":
+            return obj_folder.files.all()
+        
+        user_access_code_instance = user.get_access_code_instance()
+        if not user_access_code_instance:
+            return None
+        user_code = user_access_code_instance.code
+        accessible_files = File.objects.filter(folder=obj_folder, access_code=user_code)
+        return accessible_files
     
     def build_file_tree(self, folder):
         request = self.context.get('request')
         subfolder_list=[]
         file_list=[]
-        if folder.files.all():
-            for file in folder.files.all():
-                file_info={
-                    'id': file.id,
-                    'name': file.name,
-                    'url': reverse('file-detail', args=[file.id], request=request)
-                }
-                file_list.append(file_info)
+        all_accessible_files = self._return_all_accessible_files(folder)
+        if not all_accessible_files:
+            return []
+        
+        for file in all_accessible_files:
+            file_info={
+                'id': file.id,
+                'name': file.name,
+                'url': reverse('file-detail', args=[file.id], request=request),
+                'team': file.get_team_of_the_file().name if file.get_team_of_the_file() else None
+            }
+            file_list.append(file_info)
         for subfolder in folder.subfolders.all():
-            subfolder_list.append(subfolder)
-            for file in subfolder.files.all():
+            all_subfolder_files_accessible = self._return_all_accessible_files(subfolder)
+            for file in all_subfolder_files_accessible:
                 file_info={
                     'id': file.id,
                     'name': file.name,
                     'url': reverse('file-detail', args=[file.id], request=request),
+                    'team': file.get_team_of_the_file().name if file.get_team_of_the_file() else None
 
                 }
                 file_list.append(file_info)
@@ -230,6 +326,8 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
         request object. see that we store the acess not the refresh token. most of the code in the method
         is default code we only add the part that gets the token and stores it in the request session.
         i suppose we use session since it is design to expire after sometime? we can GET BACK TO IT later
+
+        then we retrieve the token from the session in the middleware
     '''
     
 # "/home/boba2323/fts-django/.venv/lib/python3.12/site-packages/rest_framework_simplejwt/serializers.py",
@@ -237,10 +335,10 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, str]:
         data = super().validate(attrs)
         request=self.context['request']
-        print('*\n\n-------------------the request body----------------------------*\n')
-        pprint(request.__dict__)
-        print('\n\n============session================\n')
-        pprint(request.session)
+        # print('*\n\n-------------------the request body----------------------------*\n')
+        # pprint(request.__dict__)
+        # print('\n\n============session================\n')
+        # pprint(request.session)
 
         refresh = self.get_token(self.user)
 
@@ -248,12 +346,12 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
         data["access"] = str(refresh.access_token)
 
         # lets take a look at the token
-        print('\n\n================TOKEN INSIDE VALIDATE METHOD==============\n')
-        print(data['access'])
+        # print('\n\n================TOKEN INSIDE VALIDATE METHOD==============\n')
+        # print(data['access'])
         # lets try adding the token to session and store it there
         request.session['token']=data['access']
-        print('\n\n===========PRINTING THE REQUEST SESSION TOKEN=============\n')
-        print(request.session['token'])
+        # print('\n\n===========PRINTING THE REQUEST SESSION TOKEN=============\n')
+        # print(request.session['token'])
         # it works now lets see whether we can retrieve it in other views
 
         if api_settings.UPDATE_LAST_LOGIN:
@@ -276,8 +374,8 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
         # to check whats going on with the token we can checck these statements
         # __dict__dunder mehtod exposes the attributes and dir() shows us the methods mostly
         # token.access_token gets us the bearer token
-        print('*\n\n==================TOKEN==============*\n')
-        print(token)
+        # print('*\n\n==================TOKEN==============*\n')
+        # print(token)
         # pprint(dir(token) )
         # print(token.__dict__)
         # print(token.access_token)

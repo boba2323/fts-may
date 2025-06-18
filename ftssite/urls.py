@@ -47,9 +47,6 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('fts_app.urls')),
     path('accounts/', include('accounts.urls')),  # Include the URLs from the fts_app
-
-    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'), 
     
     # drf views
     path('drf/', include(router.urls)),

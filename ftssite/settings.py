@@ -47,6 +47,9 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'guardian',
     "debug_toolbar",
+
+    # for cors api calls
+    'corsheaders',
 ]
 
 AUTHENTICATION_BACKENDS = (
@@ -75,6 +78,7 @@ REST_FRAMEWORK = {
 
 SIMPLE_JWT = {
     # custom token serialiser in serliase.py
+    # https://medium.com/@cassymyo/how-to-get-token-user-information-using-simple-jwt-django-rest-framework-and-react-js-part-1-af528bab854a
     "TOKEN_OBTAIN_SERIALIZER": "fts_app.serializers.MyTokenObtainPairSerializer",
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=240),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
@@ -89,11 +93,17 @@ SIMPLE_JWT = {
 
 
 MIDDLEWARE = [
+    # for cors api calls
+    'corsheaders.middleware.CorsMiddleware',
+    
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     # this was added
     'fts_app.middleware.jwt_token_retrieve.CustomTokenMiddleware',
     # -----x------
+      # jwt refresh token                 
+    "fts_app.middleware.refresh_token.RefreshJWTMiddleware",
+
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -101,6 +111,10 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 
     "debug_toolbar.middleware.DebugToolbarMiddleware",
+    # for cors api calls
+    'corsheaders.middleware.CorsMiddleware',
+
+  
 ]
 
 ROOT_URLCONF = 'ftssite.urls'
@@ -206,4 +220,17 @@ DEBUG_TOOLBAR_PANELS = [
     'debug_toolbar.panels.signals.SignalsPanel',
     'debug_toolbar.panels.redirects.RedirectsPanel',
     'debug_toolbar.panels.profiling.ProfilingPanel',
+]
+
+# CROSS ORIGIN RESOURCE SHARING (CORS) for connecting to frontend
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173"
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
 ]

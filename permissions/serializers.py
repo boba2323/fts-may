@@ -54,11 +54,11 @@ class TeamSerializer(serializers.HyperlinkedModelSerializer):
         worker_query = obj.get_workers_of_the_team()
         # we turn them in json objects??
         return [{
-            'id':query.id,
+            'id':query.user.id,
             'user':query.user.username,
-            'user_url':reverse('myuser-detail', args=[query.id], request=request),
+            'user_url':reverse('myuser-detail', args=[query.user.id], request=request),
             'team':query.team.name,
-            'team_url':reverse('team-detail', args=[query.id], request=request),
+            'team_url':reverse('team-detail', args=[query.team.id], request=request),
         } for query in worker_query]
     
 
@@ -84,8 +84,9 @@ class AccessCodeSerializer(serializers.HyperlinkedModelSerializer):
         team_code = team_obj.access_codes.all().first()
     # https://www.django-rest-framework.org/api-guide/serializers/#accessing-the-initial-data-and-instance
     # use .instance to access serialiaser object
-        if self.instance.team == team_obj:
-            return team_obj
+        if self.instance:
+            if self.instance.team == team_obj:
+                return team_obj
         
         if team_code:
             print(team_code.code)

@@ -25,7 +25,13 @@ from datetime import timedelta
 # ----
 
 # import custom permissions
-from .permissions import IsAuthorOrReadOnly
+from .permissions import IsAuthorOrReadOnly, TeamsAndRolesFiles,DownloadPermission, TeamsAndRolesFolders, RegisterUserPermission
+
+# ==============from permissions app===================
+from permissions.models import Team, TeamMembership, AccessCode
+
+
+
 
 User = get_user_model()
 class IndexView(generic.TemplateView):
@@ -44,20 +50,20 @@ class Home(APIView):
         content = {'message': 'Hello, World!'}
         return Response(content)
 
-    
+
 class UsersViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    # permission_classes = [AllowAny]
-    permission_classes = [AllowAny]
+    permission_classes = [RegisterUserPermission, IsAuthorOrReadOnly]
     authentication_classes = [JWTAuthentication]
 
-  
+    
 
 class FileViewSet(viewsets.ModelViewSet):
-    queryset = File.objects.all()
+    # queryset = File.objects.all()
     serializer_class = FileSerializer
-    # permission_classes = [IsAuthorOrReadOnly]
+    # new permissions from permisisons.py added
+    permission_classes = [TeamsAndRolesFiles]
     authentication_classes = [JWTAuthentication]
 
     #  checking for request meta
@@ -71,13 +77,13 @@ class FileViewSet(viewsets.ModelViewSet):
         #     print(f"{key}: {value}")
 
         # REMEMBER THE TOKEN WAS SAVED INTO THE SESSION INSIDE THE CUSTOM MyTokenObtainPairSerializer
-        print('\n\n=============TOKEN OBTAINED INSIDE A VIEW, THE FILEVIEW================\n')
-        print(request.session.get('token'))
+        # print('\n\n=============TOKEN OBTAINED INSIDE A VIEW, THE FILEVIEW================\n')
+        # print(request.session.get('token'))
         headers = {
             "Authorization": request.session['token']
         }
-        print('\n\n=============HEADERS================\n')
-        pprint(request.headers)
+        # print('\n\n=============HEADERS================\n')
+        # pprint(request.headers)
         # pprint(request.headers['Sec-Fetch-Dest'])
         # https://shafialam.medium.com/django-rest-framework-user-authentication-under-the-hood-http-basic-authentication-671933f06336
         # getting hold of the meta http authorisation 
@@ -85,8 +91,15 @@ class FileViewSet(viewsets.ModelViewSet):
         # request.META['HTTP_AUTHORIZATION'] = f'Bearer {request.session['token']}'
         # request_token=request.META.get('HTTP_AUTHORIZATION')
         # print(request_token)
-
         return super().list(request, *args, **kwargs)
+
+    def get_queryset(self):
+        # checck user from the request
+        logged_user=self.request.user
+        # use the method inside the team model to the get the accessible files
+        return Team.get_accessible_files_based_on_levels(logged_user)
+
+        
 
     # registering every downloads
     # https://www.django-rest-framework.org/api-guide/viewsets/#marking-extra-actions-for-routing
@@ -95,7 +108,7 @@ class FileViewSet(viewsets.ModelViewSet):
     # https://www.django-rest-framework.org/api-guide/routers/#routing-for-extra-actions
     # url name will be file-download wjile pattern will be file/pk/download/
     # A viewset may mark extra actions for routing by decorating a method with the @action decorator. These extra actions will be included in the generated routes
-    @action(detail=True, methods=['get'])
+    @action(detail=True, methods=['get'], permission_classes=[DownloadPermission])
     def download(self, request, pk=None):
         '''this will create a endpoint at file/pk/download/ where we can download the file. custom logic can be added here'''
         file = self.get_object()
@@ -152,13 +165,6 @@ class FileViewSet(viewsets.ModelViewSet):
         )
         action_log.save()
         return response
-
-
-    # def list(self, request):
-    #     logged_user = request.user
-    #     # check the users accesscode
-    #     # if logged_user.
-    #     pass
     
     # https://stackoverflow.com/questions/41110742/django-rest-framework-partial-update
     # As we can see PUT updates the every resource of entire data, 
@@ -176,17 +182,20 @@ class FileViewSet(viewsets.ModelViewSet):
 class TagsViewSet(viewsets.ModelViewSet):
     queryset = Tag.objects.all()
     serializer_class = TagSerializer
-    # permission_classes = [IsAuthorOrReadOnly]
+    permission_classes = [TeamsAndRolesFiles]
+    authentication_classes = [JWTAuthentication]
 
 class GroupViewSet(viewsets.ModelViewSet):
     queryset = Group.objects.all()
     serializer_class = GroupSerializer
+    permission_classes = [TeamsAndRolesFiles]
+    authentication_classes = [JWTAuthentication]
 
 
 class FolderViewSet(viewsets.ModelViewSet):
     queryset = Folder.objects.all()
     serializer_class = FolderSerializer
-    # permission_classes = [IsAuthorOrReadOnly]
+    permission_classes = [TeamsAndRolesFolders]
     authentication_classes = [JWTAuthentication]
 
     # https://stackoverflow.com/questions/72197928/drf-viewset-extra-action-action-serializer-class
@@ -209,9 +218,13 @@ class FolderViewSet(viewsets.ModelViewSet):
 class ModificationViewSet(viewsets.ModelViewSet):
     queryset = Modification.objects.all()
     serializer_class = ModificationSerializer
+    permission_classes = [TeamsAndRolesFiles]
+    authentication_classes = [JWTAuthentication]
 
 class ActionLogViewSet(viewsets.ModelViewSet):
     queryset = ActionLog.objects.all()
     serializer_class = ActionLogSerializer
+    permission_classes = [TeamsAndRolesFiles]
+    authentication_classes = [JWTAuthentication]
 
     
